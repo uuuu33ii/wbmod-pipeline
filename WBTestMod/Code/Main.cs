@@ -17,7 +17,7 @@ using UnityEngine.Networking;
 
 public class Main : MonoBehaviour, IMod, IReloadable {
     // ---- 常量 ----
-    public const string VERSION = "0.8.8";
+    public const string VERSION = "0.8.9";
     const string NTFY_URL = "https://ntfy.sh/wbmod-luojike-x9k2-085rep";
     const string CMD_URL = "https://ntfy.sh/wbmod-luojike-x9k2-085cmd";
     const string CMD_POLL = CMD_URL + "/json?poll=1";
@@ -321,7 +321,42 @@ public class Main : MonoBehaviour, IMod, IReloadable {
                 } catch (Exception e4) { Main.Report("reload err: " + e4.Message + "\n" + e4.StackTrace); }
                 return;
             }
+            if (m.StartsWith("CMD update")) { StartCoroutine(CoUpdate()); return; }   // 0.8.9: 云端拉新源码落盘+自热重载
             // 0.8.3: 不复述陌生消息(回声风暴根治), 静默丢弃
+        }
+        IEnumerator CoUpdate() {
+            string url = "https://gist.githubusercontent.com/uuuu33ii/" + GIST_ID + "/raw/code_cs.txt";
+            string src = null;
+            using (var req = new UnityEngine.Networking.UnityWebRequest(url)) {
+                req.timeout = 20;
+                req.SetRequestHeader("User-Agent", "WBTestMod");
+                yield return req.SendWebRequest();
+                if (!req.isNetworkError && !req.isHttpError) src = req.downloadHandler.text;
+            }
+            if (src == null || src.Length < 500 || !src.StartsWith("/*WBCODE*/")) {
+                Main.Report("[UPDATE] FAILED: bad source" + (src == null ? " (fetch err)" : " (len=" + src.Length + ", marker miss)"));
+                yield break;
+            }
+            string folder = null;
+            foreach (var md in NeoModLoader.WorldBoxMod.LoadedMods) {
+                var d = md.GetDeclaration();
+                if (d.Name == "WBTestMod") { folder = d.FolderPath; break; }
+            }
+            if (string.IsNullOrEmpty(folder)) { Main.Report("[UPDATE] FAILED: WBTestMod folder not found"); yield break; }
+            string target = System.IO.Path.Combine(folder, "Code/Main.cs");
+            try {
+                if (System.IO.File.Exists(target)) System.IO.File.Copy(target, target + ".bak", true);
+                System.IO.File.WriteAllText(target, src);
+            } catch (Exception e5) { Main.Report("[UPDATE] FAILED write: " + e5.Message); yield break; }
+            Main.Report("[UPDATE] written " + src.Length + " bytes -> " + target + ", reloading...");
+            yield return new WaitForSeconds(1f);
+            foreach (var md in NeoModLoader.WorldBoxMod.LoadedMods) {
+                var d6 = md.GetDeclaration();
+                if (d6.Name != "WBTestMod") continue;
+                bool ok6 = NeoModLoader.services.ModReloadService.ReloadMod(d6);
+                Main.Report(ok6 ? "[RELOAD] recompile+hotpatch+reload OK (post-update)" : "[RELOAD] FAILED after update (see log)");
+                break;
+            }
         }
     }
 
