@@ -2,22 +2,22 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Text;
+using NeoModLoader.api;
 using NeoModLoader.api.attributes;
-using NCMS;
 using UnityEngine;
 using UnityEngine.Networking;
 
 // ============================================================
-// WBTestMod v0.8.0
+// WBTestMod v0.8.7 (hot-reload ready)
 //  - 四级通道降级: L1 ntfy -> L2 Gist -> L3 本地日志 -> L4 内存环形缓冲
 //  - 第一手错误管道: Unity 日志/异常 -> 环形缓冲 -> 最佳通道回传
 //  - 闪退自保护: 会话标记 + 崩溃计数 + 安全模式 (>=3 崩溃, CMD resetcrash 解除)
+//  - 0.8.7: IMod + IReloadable 接入 NML 原生热重载 (ModReloadService.ReloadMod)
 // ============================================================
 
-[ModEntry]
-public class Main : MonoBehaviour {
+public class Main : MonoBehaviour, IMod, IReloadable {
     // ---- 常量 ----
-    public const string VERSION = "0.8.6";
+    public const string VERSION = "0.8.7";
     const string NTFY_URL = "https://ntfy.sh/wbmod-luojike-x9k2-085rep";
     const string CMD_URL = "https://ntfy.sh/wbmod-luojike-x9k2-085cmd";
     const string CMD_POLL = CMD_URL + "/json?poll=1";
@@ -38,6 +38,35 @@ public class Main : MonoBehaviour {
     static readonly Queue<string> pending = new Queue<string>();   // 未送出消息队列
     static readonly RingBuffer ring = new RingBuffer(300);         // 第一手错误环形缓冲
 
+    // ---- 0.8.7: NML 热重载接入 (IMod + IReloadable) ----
+    ModDeclare _declare;
+
+    public ModDeclare GetDeclaration() { return _declare; }
+    public GameObject GetGameObject() { return gameObject; }
+    public string GetUrl() { return "https://github.com/uuuu33ii/wbmod-pipeline"; }
+
+    // NML 加载顺序: OnLoad -> Awake -> OnEnable -> Start
+    public void OnLoad(ModDeclare pModDecl, GameObject pGameObject) {
+        _declare = pModDecl;
+        AppendFile("OnLoad fired, declare=" + (pModDecl != null ? pModDecl.Name + " " + pModDecl.Version : "null") + "\n");
+        // 已有实例 = 热重载路径会走 Reload(), 这里不做重复初始化
+    }
+
+    // NML ModReloadService.ReloadMod() 回调: 现场重编译+方法热替换后调用
+    public void Reload() {
+        try {
+            Application.logMessageReceived -= OnLog;
+            Application.logMessageReceived += OnLog;
+            // 单实例守卫放行重载实例
+            if (I == null) I = this;
+            // 心跳/哨兵/轮询协程挂在各自 GameObject 上, 方法体已被 Detour 热替换, 无需重启
+            AppendFile("=== HOT-RELOAD OK, version=" + VERSION + " ===\n");
+            Report("[HOT-RELOAD] reloaded OK, version=" + VERSION + " ring=" + ring.Count);
+        } catch (Exception e) {
+            AppendFile("HOT-RELOAD err: " + e.Message + "\n" + e.StackTrace + "\n");
+        }
+    }
+
     void Awake() {
         if (I != null) {   // 0.8.3 单实例守卫: 已有实例则自禁用
             enabled = false;
@@ -49,6 +78,7 @@ public class Main : MonoBehaviour {
         LogPath = pd + "/wbmod_log.txt";
         MarkPath = pd + "/wbmod_session.mark";
         CrashPath = pd + "/wbmod_crash.count";
+        CrashPkgPath = pd + "/wbmod_crashpack.txt";   // 0.8.7 修复: 0.8.6 起漏赋值, 崩溃包静默丢失
 
         // ---- 闪退自保护: 检查上次会话标记 ----
         string prevMark = ReadFile(MarkPath);

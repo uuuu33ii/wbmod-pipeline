@@ -1,7 +1,7 @@
 {
     "name": "WBTestMod",
     "author": "Luojike",
-    "version": "0.8.6",
-    "description": "crash package auto-report",
+    "version": "0.8.7",
+    "description": "crash auto-report + NML hot-reload (IReloadable)",
     "iconPath": ""
 }
