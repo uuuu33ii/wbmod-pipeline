@@ -12,12 +12,12 @@ using UnityEngine.Networking;
 //  - 四级通道降级: L1 ntfy -> L2 Gist -> L3 本地日志 -> L4 内存环形缓冲
 //  - 第一手错误管道: Unity 日志/异常 -> 环形缓冲 -> 最佳通道回传
 //  - 闪退自保护: 会话标记 + 崩溃计数 + 安全模式 (>=3 崩溃, CMD resetcrash 解除)
-//  - 0.8.7: IMod + IReloadable 接入 NML 原生热重载 (ModReloadService.ReloadMod)
+//  - 0.8.8: CMD lsmods + CMD reload 云端热重载触发
 // ============================================================
 
 public class Main : MonoBehaviour, IMod, IReloadable {
     // ---- 常量 ----
-    public const string VERSION = "0.8.7";
+    public const string VERSION = "0.8.8";
     const string NTFY_URL = "https://ntfy.sh/wbmod-luojike-x9k2-085rep";
     const string CMD_URL = "https://ntfy.sh/wbmod-luojike-x9k2-085cmd";
     const string CMD_POLL = CMD_URL + "/json?poll=1";
@@ -289,6 +289,36 @@ public class Main : MonoBehaviour, IMod, IReloadable {
                 crashCount = 0;
                 if (safeMode) { safeMode = false; Main.Report("SAFE MODE OFF by remote command"); }
                 else Main.Report("crash counter reset");
+                return;
+            }
+            if (m.StartsWith("CMD lsmods")) {   // 0.8.8: 云端清点 mod
+                try {
+                    var sb3 = new System.Text.StringBuilder();
+                    sb3.Append("loaded mods: ").Append(NeoModLoader.WorldBoxMod.LoadedMods.Count).Append('\n');
+                    foreach (var md in NeoModLoader.WorldBoxMod.LoadedMods) {
+                        var d3 = md.GetDeclaration();
+                        sb3.Append("- ").Append(d3.Name).Append(' ').Append(d3.Version)
+                           .Append(" | folder=").Append(d3.FolderPath)
+                           .Append(" | canReload=").Append(NeoModLoader.services.ModReloadService.CanReload(d3))
+                           .Append('\n');
+                    }
+                    Main.Report("[LSMODS]\n" + sb3.ToString());
+                } catch (Exception e3) { Main.Report("lsmods err: " + e3.Message); }
+                return;
+            }
+            if (m.StartsWith("CMD reload")) {   // 0.8.8: 云端触发热重载(重编译源码+方法热替换)
+                try {
+                    bool ok = false; string detail = "";
+                    foreach (var md in NeoModLoader.WorldBoxMod.LoadedMods) {
+                        var d4 = md.GetDeclaration();
+                        if (d4.Name != "WBTestMod") continue;
+                        if (!NeoModLoader.services.ModReloadService.CanReload(d4)) { detail = "canReload=false (need IReloadable)"; break; }
+                        ok = NeoModLoader.services.ModReloadService.ReloadMod(d4);
+                        detail = ok ? "recompile+hotpatch+reload OK" : "ReloadMod returned false (see log)";
+                        break;
+                    }
+                    Main.Report(ok ? "[RELOAD] " + detail : "[RELOAD] FAILED: " + (string.IsNullOrEmpty(detail) ? "WBTestMod not found in LoadedMods" : detail));
+                } catch (Exception e4) { Main.Report("reload err: " + e4.Message + "\n" + e4.StackTrace); }
                 return;
             }
             // 0.8.3: 不复述陌生消息(回声风暴根治), 静默丢弃
